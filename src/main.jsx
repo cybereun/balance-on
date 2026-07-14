@@ -263,7 +263,7 @@ function App() {
   const todayCount = history.filter((entry) => entry.date === todayKey()).length;
 
   return (
-    <main className={`app-shell ${cameraState === "ready" ? "camera-active" : ""}`}>
+    <main className={`app-shell ${cameraState === "ready" ? "camera-active" : ""} ${isActive ? "session-running" : ""}`}>
       <header className="topbar">
         <div className="brand"><img src="/icon-192.png" alt="" /><span>밸런스 <b>온</b></span></div>
         <span className="privacy-pill">● 기기 내 분석</span>
@@ -296,8 +296,8 @@ function App() {
         </div>
         <p className="coach-message">{status}</p>
         {cameraState !== "ready" ? <button className="primary-button" disabled={cameraState === "loading"} onClick={startCamera}>{cameraState === "loading" ? "카메라 준비 중…" : "카메라 시작하기"} <span>→</span></button>
-          : !isActive ? <button className="primary-button session-control" onClick={beginSession}>운동 시작 <span>→</span></button>
-          : <button className="finish-button session-control" onClick={finishSession}>기록 저장 · 종료</button>}
+          : !isActive ? <button className="primary-button session-control" onClick={beginSession}>시작</button>
+          : <button className="finish-button session-control" onClick={finishSession}>종료</button>}
       </section>
 
       <section className="mini-stats">
