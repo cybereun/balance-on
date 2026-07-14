@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { DrawingUtils, FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
+import { FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
 import "./styles.css";
 
 const EXERCISES = [
@@ -10,7 +10,7 @@ const EXERCISES = [
 ];
 
 const CONNECTIONS = [
-  [11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24],
+  [0, 11], [0, 12], [11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24],
   [23, 24], [23, 25], [25, 27], [24, 26], [26, 28],
 ];
 
@@ -78,6 +78,14 @@ function App() {
     landmarkerRef.current = null;
   };
 
+  const closeCamera = () => {
+    stopCamera();
+    resetSession();
+    setCameraState("idle");
+    setStatus("카메라를 켜고 전신이 보이게 서 주세요.");
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  };
+
   const setupLandmarker = async () => {
     const vision = await FilesetResolver.forVisionTasks(
       "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm"
@@ -101,6 +109,7 @@ function App() {
       setStatus("이 브라우저에서는 카메라를 사용할 수 없어요. HTTPS 환경에서 열어 주세요.");
       return;
     }
+    document.documentElement.requestFullscreen?.().catch(() => {});
     setCameraState("loading");
     setStatus("관절 인식기를 준비하는 중이에요…");
     try {
@@ -131,9 +140,36 @@ function App() {
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const utils = new DrawingUtils(ctx);
-    utils.drawConnectors(landmarks, CONNECTIONS, { color: "#63f4d4", lineWidth: 5 });
-    utils.drawLandmarks(landmarks, { color: "#bba1ff", lineWidth: 2, radius: 6 });
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "#6ff5d7";
+    ctx.lineWidth = Math.max(4, canvas.width / 170);
+    ctx.shadowColor = "#5effd7";
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    CONNECTIONS.forEach(([from, to]) => {
+      const start = landmarks[from];
+      const end = landmarks[to];
+      if (!start || !end || start.visibility < 0.42 || end.visibility < 0.42) return;
+      ctx.moveTo(start.x * canvas.width, start.y * canvas.height);
+      ctx.lineTo(end.x * canvas.width, end.y * canvas.height);
+    });
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    landmarks.forEach((point) => {
+      if (point.visibility < 0.42) return;
+      const x = point.x * canvas.width;
+      const y = point.y * canvas.height;
+      const radius = Math.max(5, canvas.width / 115);
+      ctx.fillStyle = "#161c55";
+      ctx.beginPath();
+      ctx.arc(x, y, radius + 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#c3aaff";
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    });
   };
 
   const updateExercise = (points) => {
@@ -227,7 +263,7 @@ function App() {
   const todayCount = history.filter((entry) => entry.date === todayKey()).length;
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${cameraState === "ready" ? "camera-active" : ""}`}>
       <header className="topbar">
         <div className="brand"><img src="/icon-192.png" alt="" /><span>밸런스 <b>온</b></span></div>
         <span className="privacy-pill">● 기기 내 분석</span>
@@ -251,6 +287,7 @@ function App() {
           <canvas ref={canvasRef} />
           {cameraState !== "ready" && <div className="camera-empty"><span>◌</span><strong>전신이 보이는 곳에<br />휴대폰을 세워 주세요</strong></div>}
           <div className="live-badge"><i /> LIVE</div>
+          {cameraState === "ready" && <button className="exit-camera" onClick={closeCamera} aria-label="카메라 닫기">×</button>}
           {cameraState === "ready" && <div className="stability-badge"><small>안정성</small><b>{stability}</b></div>}
         </div>
         <div className="camera-info">
@@ -259,8 +296,8 @@ function App() {
         </div>
         <p className="coach-message">{status}</p>
         {cameraState !== "ready" ? <button className="primary-button" disabled={cameraState === "loading"} onClick={startCamera}>{cameraState === "loading" ? "카메라 준비 중…" : "카메라 시작하기"} <span>→</span></button>
-          : !isActive ? <button className="primary-button" onClick={beginSession}>운동 시작하기 <span>→</span></button>
-          : <button className="finish-button" onClick={finishSession}>기록 저장하고 마치기</button>}
+          : !isActive ? <button className="primary-button session-control" onClick={beginSession}>운동 시작 <span>→</span></button>
+          : <button className="finish-button session-control" onClick={finishSession}>기록 저장 · 종료</button>}
       </section>
 
       <section className="mini-stats">
