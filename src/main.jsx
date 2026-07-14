@@ -7,6 +7,9 @@ const EXERCISES = [
   { id: "balance", emoji: "⚖", name: "한 발 서기", description: "한쪽 발을 들고 시선은 정면에 둬요.", unit: "초" },
   { id: "knee", emoji: "◒", name: "무릎 들어 올리기", description: "무릎을 천천히 허리 높이까지 올려요.", unit: "회" },
   { id: "arms", emoji: "⌁", name: "팔 벌리기", description: "양팔을 어깨 높이에서 넓게 펼쳐요.", unit: "초" },
+  { id: "squat", emoji: "⌄", name: "균형 스쿼트", description: "엉덩이를 뒤로 보내며 천천히 앉았다 일어나요.", unit: "회" },
+  { id: "shift", emoji: "↔", name: "체중 이동", description: "발은 고정하고 중심을 좌우로 천천히 옮겨요.", unit: "회" },
+  { id: "heel", emoji: "↑", name: "뒤꿈치 들기", description: "발끝은 바닥에 두고 뒤꿈치를 천천히 들어요.", unit: "회" },
 ];
 
 const CONNECTIONS = [
@@ -16,6 +19,13 @@ const CONNECTIONS = [
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 const average = (numbers) => numbers.reduce((total, number) => total + number, 0) / Math.max(numbers.length, 1);
+const jointAngle = (first, joint, last) => {
+  const firstVector = { x: first.x - joint.x, y: first.y - joint.y };
+  const lastVector = { x: last.x - joint.x, y: last.y - joint.y };
+  const dot = firstVector.x * lastVector.x + firstVector.y * lastVector.y;
+  const magnitude = Math.hypot(firstVector.x, firstVector.y) * Math.hypot(lastVector.x, lastVector.y);
+  return Math.acos(clamp(dot / Math.max(magnitude, 0.0001), -1, 1)) * (180 / Math.PI);
+};
 const todayKey = () => new Date().toISOString().slice(0, 10);
 
 function App() {
@@ -28,6 +38,14 @@ function App() {
   const lastTimeRef = useRef(0);
   const movementRef = useRef([]);
   const kneeUpRef = useRef(false);
+  const squatDownRef = useRef(false);
+  const shiftBaselineRef = useRef(null);
+  const shiftSideRef = useRef(null);
+  const heelBaselineRef = useRef(null);
+  const heelUpRef = useRef(false);
+  const pausedAtRef = useRef(null);
+  const pausedDurationRef = useRef(0);
+  const autoPausedRef = useRef(false);
   const activeRef = useRef(false);
   const exerciseRef = useRef("balance");
   const lastHudRef = useRef(0);
@@ -36,6 +54,7 @@ function App() {
   const [cameraState, setCameraState] = useState("idle");
   const [status, setStatus] = useState("카메라를 켜고 전신이 보이게 서 주세요.");
   const [isActive, setIsActive] = useState(false);
+  const [isAutoPaused, setIsAutoPaused] = useState(false);
   const [metric, setMetric] = useState(0);
   const [stability, setStability] = useState(0);
   const [seconds, setSeconds] = useState(0);
@@ -64,7 +83,17 @@ function App() {
     sessionStartRef.current = null;
     movementRef.current = [];
     kneeUpRef.current = false;
+    squatDownRef.current = false;
+    shiftBaselineRef.current = null;
+    shiftSideRef.current = null;
+    heelBaselineRef.current = null;
+    heelUpRef.current = false;
+    pausedAtRef.current = null;
+    pausedDurationRef.current = 0;
+    autoPausedRef.current = false;
+    activeRef.current = false;
     setIsActive(false);
+    setIsAutoPaused(false);
     setMetric(0);
     setStability(0);
     setSeconds(0);
@@ -172,15 +201,36 @@ function App() {
     });
   };
 
+  const autoPauseForFrame = (now = performance.now()) => {
+    if (activeRef.current && !autoPausedRef.current) {
+      autoPausedRef.current = true;
+      pausedAtRef.current = now;
+      setIsAutoPaused(true);
+      setStatus("전신이 프레임 안에 보이게 휴대폰을 조금 멀리 놓아 주세요. 자동 일시정지 중이에요.");
+      return;
+    }
+    if (!activeRef.current) setStatus("전신이 프레임 안에 보이게 휴대폰을 조금 멀리 놓아 주세요.");
+  };
+
+  const resumeAfterFrameRecovery = (now) => {
+    if (!activeRef.current || !autoPausedRef.current) return;
+    pausedDurationRef.current += now - pausedAtRef.current;
+    pausedAtRef.current = null;
+    autoPausedRef.current = false;
+    setIsAutoPaused(false);
+    setStatus("전신이 다시 확인되어 운동을 자동 재개했어요.");
+  };
+
   const updateExercise = (points) => {
     const leftHip = points[23], rightHip = points[24], leftKnee = points[25], rightKnee = points[26];
     const leftAnkle = points[27], rightAnkle = points[28], leftWrist = points[15], rightWrist = points[16];
     const leftShoulder = points[11], rightShoulder = points[12];
+    const now = performance.now();
     if (![leftHip, rightHip, leftKnee, rightKnee, leftAnkle, rightAnkle, leftWrist, rightWrist, leftShoulder, rightShoulder].every((point) => point.visibility > 0.45)) {
-      setStatus("전신이 프레임 안에 보이게 휴대폰을 조금 멀리 놓아 주세요.");
+      autoPauseForFrame(now);
       return;
     }
-    const now = performance.now();
+    resumeAfterFrameRecovery(now);
     const hipX = (leftHip.x + rightHip.x) / 2;
     movementRef.current = [...movementRef.current.slice(-34), hipX];
     const sway = movementRef.current.length > 8
@@ -194,7 +244,7 @@ function App() {
     }
 
     if (!activeRef.current) return;
-    const elapsed = (now - sessionStartRef.current) / 1000;
+    const elapsed = (now - sessionStartRef.current - pausedDurationRef.current) / 1000;
     if (shouldPaintHud) setSeconds(Math.floor(elapsed));
 
     if (exerciseRef.current === "balance") {
@@ -221,6 +271,51 @@ function App() {
         setStatus("양팔을 어깨 높이까지 넓게 펼쳐 주세요.");
       }
     }
+    if (exerciseRef.current === "squat") {
+      const kneeAngle = average([
+        jointAngle(leftHip, leftKnee, leftAnkle),
+        jointAngle(rightHip, rightKnee, rightAnkle),
+      ]);
+      if (kneeAngle < 125) {
+        squatDownRef.current = true;
+        setStatus("좋아요. 무릎이 발끝보다 너무 앞으로 나가지 않게 유지해요.");
+      } else if (squatDownRef.current && kneeAngle > 155) {
+        squatDownRef.current = false;
+        setMetric((count) => count + 1);
+        setStatus("안정적인 한 회예요. 천천히 다음 동작으로 이어가요.");
+      } else {
+        setStatus("엉덩이를 뒤로 보내며 천천히 내려가세요.");
+      }
+    }
+    if (exerciseRef.current === "shift") {
+      const hipCenter = (leftHip.x + rightHip.x) / 2;
+      if (shiftBaselineRef.current === null) shiftBaselineRef.current = hipCenter;
+      const offset = hipCenter - shiftBaselineRef.current;
+      const side = offset > 0.045 ? "right" : offset < -0.045 ? "left" : null;
+      if (side && side !== shiftSideRef.current) {
+        shiftSideRef.current = side;
+        setMetric((count) => count + 1);
+      }
+      if (!side) shiftBaselineRef.current = hipCenter;
+      setStatus(side ? "좋아요. 발은 움직이지 말고 반대쪽으로도 천천히 옮겨요." : "발을 고정한 채 중심을 한쪽으로 옮겨 보세요.");
+    }
+    if (exerciseRef.current === "heel") {
+      const ankleHeight = average([leftAnkle.y, rightAnkle.y]);
+      if (heelBaselineRef.current === null) heelBaselineRef.current = ankleHeight;
+      const heelsRaised = ankleHeight < heelBaselineRef.current - 0.025;
+      if (heelsRaised) {
+        heelUpRef.current = true;
+        setStatus("좋아요. 정점에서 잠시 멈췄다가 천천히 내려요.");
+      } else if (heelUpRef.current) {
+        heelUpRef.current = false;
+        heelBaselineRef.current = ankleHeight;
+        setMetric((count) => count + 1);
+        setStatus("한 회 완료! 발끝은 바닥에 고정해요.");
+      } else {
+        heelBaselineRef.current = ankleHeight;
+        setStatus("발끝을 바닥에 두고 뒤꿈치를 천천히 들어 올리세요.");
+      }
+    }
   };
 
   const detectFrame = () => {
@@ -236,7 +331,7 @@ function App() {
       } else {
         const ctx = canvasRef.current?.getContext("2d");
         ctx?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-        setStatus("카메라 앞에 전신이 보이도록 서 주세요.");
+        autoPauseForFrame(performance.now());
       }
     }
     animationRef.current = requestAnimationFrame(detectFrame);
@@ -245,6 +340,7 @@ function App() {
   const beginSession = () => {
     resetSession();
     sessionStartRef.current = performance.now();
+    activeRef.current = true;
     setIsActive(true);
     setStatus(exercise.description);
   };
@@ -255,6 +351,7 @@ function App() {
     const next = [entry, ...history].slice(0, 30);
     localStorage.setItem("balance-on-history", JSON.stringify(next));
     setHistory(next);
+    activeRef.current = false;
     setIsActive(false);
     setStatus(`${metric}${exercise.unit} 기록 완료! 오늘도 중심을 잘 잡았어요.`);
   };
@@ -263,7 +360,7 @@ function App() {
   const todayCount = history.filter((entry) => entry.date === todayKey()).length;
 
   return (
-    <main className={`app-shell ${cameraState === "ready" ? "camera-active" : ""} ${isActive ? "session-running" : ""}`}>
+    <main className={`app-shell ${cameraState === "ready" ? "camera-active" : ""} ${isActive ? "session-running" : ""} ${isAutoPaused ? "auto-paused" : ""}`}>
       <header className="topbar">
         <div className="brand"><img src="/icon-192.png" alt="" /><span>밸런스 <b>온</b></span></div>
         <span className="privacy-pill">● 기기 내 분석</span>
