@@ -5,7 +5,7 @@ import "./styles.css";
 
 const EXERCISES = [
   { id: "balance", emoji: "⚖", name: "한 발 서기", description: "한쪽 발을 들고 시선은 정면에 둬요.", unit: "초" },
-  { id: "knee", emoji: "◒", name: "무릎 들어 올리기", description: "무릎을 천천히 허리 높이까지 올려요.", unit: "회" },
+  { id: "knee", emoji: "◒", name: "제자리 무릎 들기", description: "제자리에서 무릎을 천천히 허리 높이까지 올려요.", unit: "회" },
   { id: "arms", emoji: "⌁", name: "팔 벌리기", description: "양팔을 어깨 높이에서 넓게 펼쳐요.", unit: "초" },
   { id: "squat", emoji: "⌄", name: "균형 스쿼트", description: "엉덩이를 뒤로 보내며 천천히 앉았다 일어나요.", unit: "회" },
   { id: "shift", emoji: "↔", name: "체중 이동", description: "발은 고정하고 중심을 좌우로 천천히 옮겨요.", unit: "회" },
@@ -39,6 +39,9 @@ function App() {
   const movementRef = useRef([]);
   const kneeUpRef = useRef(false);
   const squatDownRef = useRef(false);
+  const squatRepRef = useRef(0);
+  const squatSetRef = useRef(1);
+  const squatCompleteRef = useRef(false);
   const shiftBaselineRef = useRef(null);
   const shiftSideRef = useRef(null);
   const heelBaselineRef = useRef(null);
@@ -55,6 +58,11 @@ function App() {
   const [status, setStatus] = useState("카메라를 켜고 전신이 보이게 서 주세요.");
   const [isActive, setIsActive] = useState(false);
   const [isAutoPaused, setIsAutoPaused] = useState(false);
+  const [squatRepsTarget, setSquatRepsTarget] = useState(10);
+  const [squatSetsTarget, setSquatSetsTarget] = useState(3);
+  const [squatRep, setSquatRep] = useState(0);
+  const [squatSet, setSquatSet] = useState(1);
+  const [squatPulse, setSquatPulse] = useState(0);
   const [metric, setMetric] = useState(0);
   const [stability, setStability] = useState(0);
   const [seconds, setSeconds] = useState(0);
@@ -84,6 +92,9 @@ function App() {
     movementRef.current = [];
     kneeUpRef.current = false;
     squatDownRef.current = false;
+    squatRepRef.current = 0;
+    squatSetRef.current = 1;
+    squatCompleteRef.current = false;
     shiftBaselineRef.current = null;
     shiftSideRef.current = null;
     heelBaselineRef.current = null;
@@ -94,6 +105,9 @@ function App() {
     activeRef.current = false;
     setIsActive(false);
     setIsAutoPaused(false);
+    setSquatRep(0);
+    setSquatSet(1);
+    setSquatPulse(0);
     setMetric(0);
     setStability(0);
     setSeconds(0);
@@ -276,13 +290,32 @@ function App() {
         jointAngle(leftHip, leftKnee, leftAnkle),
         jointAngle(rightHip, rightKnee, rightAnkle),
       ]);
-      if (kneeAngle < 125) {
+      if (squatCompleteRef.current) {
+        setStatus("모든 세트를 완료했어요! 종료를 눌러 기록을 저장하세요.");
+      } else if (kneeAngle < 125) {
         squatDownRef.current = true;
         setStatus("좋아요. 무릎이 발끝보다 너무 앞으로 나가지 않게 유지해요.");
       } else if (squatDownRef.current && kneeAngle > 155) {
         squatDownRef.current = false;
+        const nextRep = squatRepRef.current + 1;
+        squatRepRef.current = nextRep;
         setMetric((count) => count + 1);
-        setStatus("안정적인 한 회예요. 천천히 다음 동작으로 이어가요.");
+        setSquatRep(nextRep);
+        setSquatPulse((count) => count + 1);
+        if (nextRep >= squatRepsTarget) {
+          if (squatSetRef.current >= squatSetsTarget) {
+            squatCompleteRef.current = true;
+            setStatus("목표 세트를 모두 완료했어요! 정말 잘했어요.");
+          } else {
+            squatSetRef.current += 1;
+            squatRepRef.current = 0;
+            setSquatSet(squatSetRef.current);
+            setSquatRep(0);
+            setStatus(`${squatSetRef.current - 1}세트 완료! 숨을 고르고 다음 세트를 시작하세요.`);
+          }
+        } else {
+          setStatus("안정적인 한 회예요. 천천히 다음 동작으로 이어가요.");
+        }
       } else {
         setStatus("엉덩이를 뒤로 보내며 천천히 내려가세요.");
       }
@@ -378,6 +411,22 @@ function App() {
         </button>)}
       </section>
 
+      {exerciseId === "squat" && <section className="squat-setup" aria-label="스쿼트 목표 설정">
+        <div className="setup-copy"><span>균형 스쿼트</span><strong>목표를 정해 시작하세요</strong></div>
+        <div className="setup-control">
+          <span>반복</span>
+          <button aria-label="반복 횟수 줄이기" onClick={() => setSquatRepsTarget((value) => Math.max(5, value - 5))}>−</button>
+          <b>{squatRepsTarget}<small>회</small></b>
+          <button aria-label="반복 횟수 늘리기" onClick={() => setSquatRepsTarget((value) => Math.min(30, value + 5))}>+</button>
+        </div>
+        <div className="setup-control">
+          <span>세트</span>
+          <button aria-label="세트 수 줄이기" onClick={() => setSquatSetsTarget((value) => Math.max(1, value - 1))}>−</button>
+          <b>{squatSetsTarget}<small>세트</small></b>
+          <button aria-label="세트 수 늘리기" onClick={() => setSquatSetsTarget((value) => Math.min(5, value + 1))}>+</button>
+        </div>
+      </section>}
+
       <section className="camera-card">
         <div className="camera-stage">
           <video ref={videoRef} muted playsInline className={cameraState === "ready" ? "visible" : ""} />
@@ -386,6 +435,10 @@ function App() {
           <div className="live-badge"><i /> LIVE</div>
           {cameraState === "ready" && <button className="exit-camera" onClick={closeCamera} aria-label="카메라 닫기">×</button>}
           {cameraState === "ready" && <div className="stability-badge"><small>안정성</small><b>{stability}</b></div>}
+          {cameraState === "ready" && exerciseId === "squat" && <div className="squat-counter" key={squatPulse}>
+            <span>SET {squatSet} / {squatSetsTarget}</span>
+            <strong><b>{squatRep}</b><i>/</i><em>{squatRepsTarget}</em></strong>
+          </div>}
         </div>
         <div className="camera-info">
           <div><p>{exercise.name}</p><strong>{metric}<small>{exercise.unit}</small></strong></div>
